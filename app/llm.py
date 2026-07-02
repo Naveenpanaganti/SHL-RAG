@@ -18,7 +18,7 @@ PROVIDER = os.getenv("LLM_PROVIDER", "gemini")   # "gemini" | "groq"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")
 
 _MAX_TOKENS = 1024   # reduced from 2000 — keeps responses within Groq free tier limits
 _TEMPERATURE = 0.1
