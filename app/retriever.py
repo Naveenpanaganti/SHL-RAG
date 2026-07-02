@@ -54,12 +54,14 @@ def retrieve(query: str, top_k: int = 20) -> List[Dict[str, Any]]:
         logger.warning("Empty query — returning empty list")
         return []
 
-    index, embedder = get_index()
+    index, get_embedder = get_index()
     catalog = get_catalog()
 
     if index is None or not catalog:
         logger.error("Vector store not initialized")
         return []
+
+    embedder = get_embedder()  # lazy-loads fastembed model on first call
 
     # Build query variants for better recall
     queries = _expand_query(query)
