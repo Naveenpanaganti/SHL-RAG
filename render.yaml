@@ -6,9 +6,9 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: LLM_PROVIDER
-        value: groq
-      - key: GROQ_MODEL
-        value: llama3-8b-8192
-      - key: GROQ_API_KEY
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-1.5-flash
+      - key: GEMINI_API_KEY
         sync: false   # set manually in Render dashboard
     pythonVersion: "3.11.9"
