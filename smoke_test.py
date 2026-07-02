@@ -7,7 +7,7 @@ import urllib.request
 import urllib.error
 import sys
 
-BASE = "http://localhost:8000"
+BASE = "https://shl-rag-jv6t.onrender.com"
 PASS = 0
 FAIL = 0
 
