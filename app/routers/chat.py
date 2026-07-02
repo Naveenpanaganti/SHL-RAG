@@ -22,4 +22,4 @@ async def chat(request: ChatRequest) -> ChatResponse:
         return await handle_chat(request.messages)
     except Exception as exc:
         logger.error("Chat handler error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Service temporarily unavailable") from exc
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
