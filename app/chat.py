@@ -88,19 +88,19 @@ async def handle_chat(messages: List[Message]) -> ChatResponse:
         + [c for c in candidates if c["url"] not in seen_in_context]
     )
 
-    # Serialize catalog context for prompt (trim description to control token budget)
+    # Serialize catalog context — keep tight to stay within Groq token limits
     catalog_context = json.dumps(
         [
             {
                 "name": c["name"],
                 "url": c["url"],
                 "test_type": c["test_type"],
-                "description": c.get("description", "")[:300],
+                "description": c.get("description", "")[:150],  # tight trim
                 "job_levels": c.get("job_levels", []),
                 "duration": c.get("duration", ""),
                 "keys": c.get("keys", []),
             }
-            for c in deduplicated_candidates[:30]  # cap at 30 items for token budget
+            for c in deduplicated_candidates[:20]  # max 20 items
         ],
         indent=2,
     )

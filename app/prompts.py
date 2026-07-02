@@ -174,10 +174,12 @@ def build_user_prompt(
     - Turn warning if near cap
     """
     # Format conversation history — show assistant replies as plain text
+    # Trim very long user messages (JD pastes) to keep prompt size manageable
     history_lines = []
     for m in messages:
         if m.role == "user":
-            history_lines.append(f"User: {m.content}")
+            content = m.content[:400] if len(m.content) > 400 else m.content
+            history_lines.append(f"User: {content}")
         else:
             reply_text = _extract_reply_text(m.content)
             history_lines.append(f"Assistant: {reply_text}")

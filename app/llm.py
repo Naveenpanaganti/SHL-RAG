@@ -20,7 +20,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
-_MAX_TOKENS = 2000
+_MAX_TOKENS = 1024   # reduced from 2000 — keeps responses within Groq free tier limits
 _TEMPERATURE = 0.1
 _MAX_RETRIES = 2
 
