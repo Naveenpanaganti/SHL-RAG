@@ -4,14 +4,14 @@ uvicorn[standard]==0.30.1
 pydantic==2.12.4
 python-dotenv==1.0.1
 
-# Embeddings & vector search
-sentence-transformers==5.6.0
-faiss-cpu==1.14.3
-numpy==1.26.4
+# PyTorch CPU — must come before sentence-transformers
+# Render (Linux) uses the standard PyPI wheel which is CPU-only and works fine
+torch==2.2.2
 
-# PyTorch (CPU) — install via:
-#   pip install torch --index-url https://download.pytorch.org/whl/cpu
-# torch==2.12.1+cpu
+# Embeddings & vector search
+sentence-transformers==3.0.1
+faiss-cpu==1.8.0
+numpy==1.26.4
 
 # LLM providers
 google-generativeai==0.8.6
@@ -21,6 +21,6 @@ groq==1.5.0
 httpx==0.28.1
 beautifulsoup4==4.15.0
 
-# Testing
+# Testing (not needed at runtime but harmless to include)
 pytest==9.1.1
 pytest-asyncio==1.4.0
