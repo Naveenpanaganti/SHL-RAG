@@ -2,9 +2,7 @@ services:
   - type: web
     name: shl-rag
     runtime: python
-    buildCommand: >
-      pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu &&
-      pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: LLM_PROVIDER
@@ -12,5 +10,5 @@ services:
       - key: GROQ_MODEL
         value: llama-3.3-70b-versatile
       - key: GROQ_API_KEY
-        sync: false   # set this manually in Render dashboard — never commit secrets
+        sync: false   # set manually in Render dashboard
     pythonVersion: "3.11.9"

@@ -4,8 +4,8 @@ uvicorn[standard]==0.30.1
 pydantic==2.7.1
 python-dotenv==1.0.1
 
-# Embeddings & vector search (torch installed separately via render.yaml)
-sentence-transformers==3.0.1
+# Embeddings — fastembed uses ONNX runtime, no PyTorch needed (~120MB RAM vs ~420MB)
+fastembed==0.3.6
 faiss-cpu==1.8.0
 numpy==1.26.4
 

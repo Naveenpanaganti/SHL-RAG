@@ -15,6 +15,8 @@ import logging
 import re
 from typing import List, Dict, Any
 
+import numpy as np
+
 from app.vectorstore import get_index, get_catalog
 
 logger = logging.getLogger(__name__)
@@ -63,13 +65,14 @@ def retrieve(query: str, top_k: int = 20) -> List[Dict[str, Any]]:
     queries = _expand_query(query)
     logger.debug("Query variants: %s", queries)
 
-    # Embed all variants at once (batch)
-    vectors = embedder.encode(
-        queries,
-        convert_to_numpy=True,
-        normalize_embeddings=True,
-        batch_size=len(queries),
-    )
+    # Embed all variants — fastembed.embed() returns a generator of 1-D arrays
+    raw_vectors = list(embedder.embed(queries))
+    vectors = np.array(raw_vectors, dtype=np.float32)
+
+    # L2-normalize
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    vectors /= norms
 
     # Collect scores per catalog index across all query variants
     k = min(top_k * 2, len(catalog))  # fetch more, then trim after boosting

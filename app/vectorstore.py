@@ -1,19 +1,16 @@
 """
 FAISS vector store.
 
-build_index()  — called once at startup, loads catalog and builds the index.
+build_index()  — called once at startup via run_in_executor (non-blocking).
 get_index()    — returns (faiss_index, embedder) for retrieval.
-get_catalog()  — returns the normalized catalog list for URL/name validation.
+get_catalog()  — returns the normalized catalog list.
+get_name_map() — returns precomputed lowercase-name → item map.
 
-Design:
-- all-MiniLM-L6-v2 is small (80MB), fast, and good enough for this domain.
-- Inner-product index on L2-normalized vectors = cosine similarity.
-- Index is held in module-level globals (process memory); no persistence needed.
-
-Catalog schema normalization:
-  Raw field   → Normalized field
-  link        → url
-  keys[]      → test_type (comma-separated letter codes, e.g. "K,S")
+Memory design:
+- Uses fastembed (ONNX runtime) instead of sentence-transformers + PyTorch.
+  Peak RAM: ~120MB vs ~420MB — fits in Render free tier (512MB).
+- Model: BAAI/bge-small-en-v1.5 (384-dim, same quality as MiniLM).
+- FAISS IndexFlatIP on L2-normalized vectors = cosine similarity.
 """
 
 import json
@@ -23,21 +20,19 @@ from typing import Any, List, Optional, Tuple
 
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
 _index: Optional[faiss.IndexFlatIP] = None
-_embedder: Optional[SentenceTransformer] = None
+_embedder: Any = None          # fastembed.TextEmbedding instance
 _catalog: List[dict] = []
-_name_map: dict = {}   # lowercase name → catalog item, for O(1) name lookup
+_name_map: dict = {}           # lowercase name → catalog item, O(1) lookup
 
 CATALOG_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "catalog.json")
-MODEL_NAME = "all-MiniLM-L6-v2"
+MODEL_NAME = "BAAI/bge-small-en-v1.5"
 
-# Maps full key strings → single letter codes used in the API response schema.
-# Only codes defined in the SHL spec are included: A, B, C, D, K, P, S.
-# "Assessment Exercises" has no valid single-letter code in the spec — omitted.
+# Maps catalog key strings → single-letter codes (spec: A B C D K P S only).
+# "Assessment Exercises" intentionally omitted — no valid spec code.
 KEYS_TO_CODE = {
     "Ability & Aptitude": "A",
     "Biodata & Situational Judgment": "B",
@@ -51,47 +46,43 @@ KEYS_TO_CODE = {
 
 def build_index() -> None:
     """
-    Load catalog.json, normalize fields, embed each item, build the FAISS index.
-    Called once via FastAPI lifespan hook.
+    Load catalog.json, normalize, embed via fastembed, build FAISS index.
+    Called once at startup via asyncio.run_in_executor (non-blocking).
     """
-    global _index, _embedder, _catalog
+    global _index, _embedder, _catalog, _name_map
 
     logger.info("Loading catalog from %s", CATALOG_PATH)
     with open(CATALOG_PATH, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
-    # Normalize — filter out items missing name or URL
     _catalog = [_normalize(item) for item in raw if item.get("name") and item.get("link")]
     logger.info("Loaded and normalized %d catalog items", len(_catalog))
 
-    # Precompute name map for O(1) lookup during URL validation
-    global _name_map
     _name_map = {item["name"].lower(): item for item in _catalog}
 
-    logger.info("Loading embedding model: %s", MODEL_NAME)
-    _embedder = SentenceTransformer(MODEL_NAME)
+    logger.info("Loading fastembed model: %s", MODEL_NAME)
+    from fastembed import TextEmbedding
+    _embedder = TextEmbedding(model_name=MODEL_NAME)
 
-    # Build a rich text representation for each item to improve recall
     texts = [_item_to_text(item) for item in _catalog]
-
     logger.info("Encoding %d items...", len(texts))
-    vectors = _embedder.encode(
-        texts,
-        convert_to_numpy=True,
-        normalize_embeddings=True,  # L2-normalize for cosine via inner product
-        show_progress_bar=False,
-        batch_size=64,
-    )
+
+    # fastembed.embed() returns a generator of 1-D numpy arrays
+    vectors = np.array(list(_embedder.embed(texts)), dtype=np.float32)
+
+    # L2-normalize so inner product == cosine similarity
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    vectors /= norms
 
     dim = vectors.shape[1]
     _index = faiss.IndexFlatIP(dim)
-    _index.add(vectors.astype(np.float32))
-
+    _index.add(vectors)
     logger.info("FAISS index built: %d vectors, dim=%d", _index.ntotal, dim)
 
 
-def get_index() -> Tuple[Optional[faiss.IndexFlatIP], Optional[SentenceTransformer]]:
-    """Return the FAISS index and embedder. Both are None if not yet built."""
+def get_index() -> Tuple[Optional[faiss.IndexFlatIP], Any]:
+    """Return (faiss_index, embedder). Both None if not yet built."""
     return _index, _embedder
 
 
@@ -101,26 +92,22 @@ def get_catalog() -> List[dict]:
 
 
 def get_name_map() -> dict:
-    """Return the precomputed lowercase-name → catalog item map."""
+    """Return precomputed lowercase-name → catalog item map."""
     return _name_map
 
 
 def _normalize(item: dict) -> dict:
-    """
-    Normalize a raw catalog item to the internal schema.
-    - link → url
-    - keys[] full strings → test_type letter codes (comma-separated)
-    """
+    """Normalize raw catalog item: link→url, keys[]→test_type codes."""
     keys = item.get("keys", [])
-    codes = [KEYS_TO_CODE.get(k, "") for k in keys]
-    test_type = ",".join(c for c in codes if c)
-
+    test_type = ",".join(
+        KEYS_TO_CODE[k] for k in keys if k in KEYS_TO_CODE
+    )
     return {
         "name": item.get("name", "").strip(),
         "url": item.get("link", ""),
         "test_type": test_type,
         "description": item.get("description", ""),
-        "keys": keys,                            # keep full strings for prompt context
+        "keys": keys,
         "job_levels": item.get("job_levels", []),
         "languages": item.get("languages", []),
         "duration": item.get("duration", ""),
@@ -132,20 +119,13 @@ def _normalize(item: dict) -> dict:
 
 def _item_to_text(item: dict) -> str:
     """
-    Convert a normalized catalog item to a rich, weighted searchable string.
-
-    Design decisions:
-    - Name is repeated 3x so it dominates the embedding (boosts exact-name recall)
-    - Description provides semantic context for role-based queries
-    - Keys map to natural-language synonyms so "cognitive" matches "Ability & Aptitude"
-    - Job levels help match seniority-based queries ("senior", "graduate", "executive")
+    Rich searchable text for each catalog item.
+    Name repeated 3x to dominate the embedding signal.
+    Keys and job levels expanded to natural-language synonyms for recall.
     """
     name = item.get("name", "")
     description = item.get("description", "")
-    keys = item.get("keys", [])
-    job_levels = item.get("job_levels", [])
 
-    # Expand keys to natural-language synonyms for better semantic matching
     key_synonyms = {
         "Ability & Aptitude": "cognitive ability aptitude reasoning numerical verbal deductive",
         "Biodata & Situational Judgment": "situational judgment scenarios sjt decision making biodata",
@@ -157,10 +137,9 @@ def _item_to_text(item: dict) -> str:
         "Assessment Exercises": "assessment exercise in-tray e-tray role play",
     }
     expanded_keys = " ".join(
-        key_synonyms.get(k, k) for k in keys
+        key_synonyms.get(k, k) for k in item.get("keys", [])
     )
 
-    # Job level synonyms
     level_synonyms = {
         "Director": "director senior leadership executive",
         "Executive": "executive C-suite CXO VP senior leader",
@@ -174,13 +153,8 @@ def _item_to_text(item: dict) -> str:
         "Supervisor": "supervisor frontline manager",
     }
     expanded_levels = " ".join(
-        level_synonyms.get(jl, jl) for jl in job_levels
+        level_synonyms.get(jl, jl) for jl in item.get("job_levels", [])
     )
 
-    parts = [
-        name, name, name,        # repeat name 3x for stronger embedding weight
-        description,
-        expanded_keys,
-        expanded_levels,
-    ]
+    parts = [name, name, name, description, expanded_keys, expanded_levels]
     return " | ".join(p for p in parts if p)
