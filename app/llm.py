@@ -15,10 +15,15 @@ import os
 logger = logging.getLogger(__name__)
 
 PROVIDER = os.getenv("LLM_PROVIDER", "gemini")   # "gemini" | "groq"
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+
+# API keys read lazily at call time so they're always fresh from environment
+def _gemini_key() -> str:
+    return os.getenv("GEMINI_API_KEY", "")
+
+def _groq_key() -> str:
+    return os.getenv("GROQ_API_KEY", "")
 
 _MAX_TOKENS = 1024   # reduced from 2000 — keeps responses within Groq free tier limits
 _TEMPERATURE = 0.1
@@ -57,7 +62,9 @@ async def _call_gemini(system_prompt: str, user_prompt: str) -> str:
     try:
         import google.generativeai as genai
 
-        genai.configure(api_key=GEMINI_API_KEY)
+        genai.configure(api_key=_gemini_key())
+        if not _gemini_key():
+            raise RuntimeError("GEMINI_API_KEY is not set in environment")
         model = genai.GenerativeModel(
             model_name=GEMINI_MODEL,
             system_instruction=system_prompt,
@@ -82,7 +89,9 @@ async def _call_groq(system_prompt: str, user_prompt: str) -> str:
     try:
         from groq import Groq
 
-        client = Groq(api_key=GROQ_API_KEY)
+        client = Groq(api_key=_groq_key())
+        if not _groq_key():
+            raise RuntimeError("GROQ_API_KEY is not set in environment")
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
