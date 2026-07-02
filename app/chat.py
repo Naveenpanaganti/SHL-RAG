@@ -114,7 +114,11 @@ async def handle_chat(messages: List[Message]) -> ChatResponse:
         max_turns=MAX_TURNS,
     )
 
-    raw_response = await call_llm(system_prompt=system_prompt, user_prompt=user_prompt)
+    try:
+        raw_response = await call_llm(system_prompt=system_prompt, user_prompt=user_prompt)
+    except Exception as exc:
+        logger.error("LLM call failed: %s", exc, exc_info=True)
+        raise  # let the router return 500 with a clear error
 
     return _parse_llm_response(
         raw_response,
