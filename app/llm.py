@@ -37,13 +37,14 @@ def _groq_model() -> str:
 
 async def call_llm(system_prompt: str, user_prompt: str) -> str:
     """
-    Call the configured LLM. Retries once on transient failure.
-    Provider and credentials are read fresh on every call.
+    Call the configured LLM. Retries once ONLY on transient network failures.
+    Does NOT retry on auth errors (401/403) or quota errors (429).
     """
     last_exc = None
     for attempt in range(_MAX_RETRIES):
         try:
             provider = _provider()
+            logger.info("[LLM] attempt=%d provider=%s", attempt + 1, provider)
             if provider == "gemini":
                 return await _call_gemini(system_prompt, user_prompt)
             elif provider == "groq":
@@ -52,14 +53,20 @@ async def call_llm(system_prompt: str, user_prompt: str) -> str:
                 raise ValueError(f"Unknown LLM_PROVIDER: {provider!r}. Use 'gemini' or 'groq'.")
         except Exception as exc:
             last_exc = exc
+            err_str = str(exc).lower()
+            # Do NOT retry auth or quota failures — they won't resolve on retry
+            if any(x in err_str for x in ["401", "403", "api key", "quota", "resource_exhausted", "rate_limit"]):
+                logger.error("[LLM] Non-retryable failure: %s", exc)
+                break
             if attempt < _MAX_RETRIES - 1:
                 wait = 1.5 * (attempt + 1)
-                logger.warning("LLM attempt %d failed: %s — retrying in %.1fs", attempt + 1, exc, wait)
+                logger.warning("[LLM] Transient failure attempt %d: %s — retrying in %.1fs",
+                               attempt + 1, exc, wait)
                 await asyncio.sleep(wait)
             else:
-                logger.error("LLM failed after %d attempts: %s", _MAX_RETRIES, exc)
+                logger.error("[LLM] All attempts failed: %s", exc)
 
-    raise RuntimeError(f"LLM failed after {_MAX_RETRIES} attempts: {last_exc}") from last_exc
+    raise RuntimeError(f"LLM failed: {last_exc}") from last_exc
 
 
 # ── Gemini ────────────────────────────────────────────────────────────────────
@@ -119,9 +126,11 @@ async def _call_groq(system_prompt: str, user_prompt: str) -> str:
                 ],
                 temperature=_TEMPERATURE,
                 max_tokens=_MAX_TOKENS,
+                timeout=25,  # explicit 25s timeout — stays within 30s evaluator deadline
             )
 
         response = await loop.run_in_executor(None, _call)
+        logger.info("[LLM] groq_response_received model=%s", model)
         return response.choices[0].message.content
 
     except Exception as exc:
