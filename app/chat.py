@@ -148,7 +148,8 @@ def _get_provider() -> str:
 
 def _build_search_query(messages: List[Message], previous_shortlist: List[dict]) -> str:
     user_texts = [m.content for m in messages if m.role == "user"]
-    user_texts = [t[:300] if len(t) > 400 else t for t in user_texts]
+    # Trim very long messages (JD pastes) to avoid token limit issues
+    user_texts = [t[:250] if len(t) > 300 else t for t in user_texts]
     if user_texts:
         weighted = user_texts[:-1] + [user_texts[-1], user_texts[-1]]
     else:

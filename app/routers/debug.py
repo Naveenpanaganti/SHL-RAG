@@ -8,14 +8,14 @@ import logging
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from app.vectorstore import get_catalog, get_index, _embedder
-
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.get("/debug")
 async def debug():
+    from app.vectorstore import get_catalog, get_index, _embedder as _emb
+
     catalog = get_catalog()
     index, _ = get_index()
 
@@ -32,7 +32,7 @@ async def debug():
         "catalog_items": len(catalog),
         "faiss_loaded": index is not None,
         "faiss_vectors": index.ntotal if index is not None else 0,
-        "embedder_loaded": _embedder is not None,
+        "embedder_loaded": _emb is not None,
         "llm_provider": provider,
         "llm_model": model,
         "api_key_present": key_present,

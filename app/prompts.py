@@ -178,7 +178,7 @@ def build_user_prompt(
     history_lines = []
     for m in messages:
         if m.role == "user":
-            content = m.content[:400] if len(m.content) > 400 else m.content
+            content = m.content[:300] if len(m.content) > 300 else m.content
             history_lines.append(f"User: {content}")
         else:
             reply_text = _extract_reply_text(m.content)
